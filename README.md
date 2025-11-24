@@ -93,3 +93,7 @@ llama-3.3-70b-versatile
 * Chat history is session-based and resets on page refresh
 * RAG is optional; the assistant works normally without uploaded documents
 * Vector data is stored in memory only
+
+## Video
+
+https://www.youtube.com/watch?v=vlY3_bLBU7E
