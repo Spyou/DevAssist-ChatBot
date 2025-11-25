@@ -84,7 +84,7 @@ const uploadFile = async () => {
   formData.append('file', selectedFile.value)
   
   try {
-    const response = await fetch('http://localhost:8000/upload', {
+    const response = await fetch('/api/upload', {
       method: 'POST',
       body: formData
     })
@@ -114,7 +114,7 @@ const uploadFile = async () => {
 
 const clearDocuments = async () => {
   try {
-    const response = await fetch('http://localhost:8000/clear', {
+    const response = await fetch('/api/clear', {
       method: 'POST'
     })
     

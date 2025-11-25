@@ -4,12 +4,24 @@
     <div class="px-6 py-4 border-b border-gray-800 bg-gray-950">
       <div class="flex items-center justify-between">
         <h2 class="font-semibold text-white">Chat</h2>
-        <button 
-          v-if="messages.length > 0"
-          @click="clearChat"
-          class="text-sm text-gray-400 hover:text-white transition px-3 py-1.5 hover:bg-gray-800 rounded-lg">
-          Clear
-        </button>
+        <div class="flex items-center gap-2">
+          <button 
+            @click="newChat"
+            class="text-sm text-gray-400 hover:text-white transition px-3 py-1.5 hover:bg-gray-800 rounded-lg flex items-center gap-2"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            New Chat
+          </button>
+          <button 
+            v-if="messages.length > 0"
+            @click="clearChat"
+            class="text-sm text-gray-400 hover:text-white transition px-3 py-1.5 hover:bg-gray-800 rounded-lg"
+          >
+            Clear
+          </button>
+        </div>
       </div>
     </div>
     
@@ -42,6 +54,19 @@
           </div>
         </div>
         
+        <!-- Web Search Indicator -->
+        <div v-if="searching" class="flex justify-start">
+          <div class="bg-blue-900/30 border border-blue-700 rounded-2xl px-4 py-3">
+            <div class="flex items-center gap-2 text-blue-400">
+              <svg class="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+              </svg>
+              <span>🔍 Searching the web with MCP...</span>
+            </div>
+          </div>
+        </div>
+        
         <!-- Streaming -->
         <div v-if="streaming" class="flex justify-start">
           <div class="bg-gray-800 border border-gray-700 rounded-2xl px-4 py-3 max-w-3xl">
@@ -53,11 +78,34 @@
     
     <!-- Input -->
     <div class="border-t border-gray-800 p-4 bg-gray-950">
+      <!-- Web Search Toggle -->
+      <div class="flex items-center justify-between mb-3 max-w-4xl">
+        <button
+          @click="webSearchEnabled = !webSearchEnabled"
+          :class="[
+            'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+            webSearchEnabled 
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' 
+              : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+          ]"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          <span v-if="webSearchEnabled">🌐 Web Search: ON</span>
+          <span v-else>Web Search: OFF</span>
+        </button>
+        
+        <span v-if="webSearchEnabled" class="text-xs text-blue-400">
+          Using MCP Web Research Tool
+        </span>
+      </div>
+      
       <div class="flex gap-3 max-w-4xl">
         <textarea
           v-model="userInput"
           @keydown.enter.exact.prevent="sendMessage"
-          placeholder="Ask about code, algorithms, debugging..."
+          :placeholder="webSearchEnabled ? 'Search the web about code, APIs, frameworks...' : 'Ask about code, algorithms, debugging...'"
           class="flex-1 bg-gray-800 text-white border border-gray-700 rounded-xl px-4 py-3 resize-none 
                  focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                  placeholder-gray-500"
@@ -65,13 +113,13 @@
         ></textarea>
         <button
           @click="sendMessage"
-          :disabled="!userInput.trim() || streaming"
+          :disabled="!userInput.trim() || streaming || searching"
           class="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl 
                  hover:from-blue-700 hover:to-indigo-700
                  disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed 
                  font-semibold shadow-lg shadow-blue-500/20 transition-all"
         >
-          <svg v-if="!streaming" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg v-if="!streaming && !searching" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
           </svg>
           <svg v-else class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -80,7 +128,10 @@
           </svg>
         </button>
       </div>
-      <p class="text-xs text-gray-500 mt-2 text-center">Press Enter to send</p>
+      <p class="text-xs text-gray-500 mt-2 text-center">
+        Press Enter to send
+        <span v-if="webSearchEnabled" class="text-blue-400"> • Web search active 🔍</span>
+      </p>
     </div>
   </div>
 </template>
@@ -92,8 +143,16 @@ import { marked } from 'marked'
 const messages = ref([])
 const userInput = ref('')
 const streaming = ref(false)
+const searching = ref(false)
 const currentResponse = ref('')
 const chatContainer = ref(null)
+const currentSessionId = ref(null)
+const webSearchEnabled = ref(false) // Toggle for web search
+
+const props = defineProps({
+  userId: String
+})
+
 let ws = null
 
 const renderMarkdown = (text) => {
@@ -108,21 +167,75 @@ const scrollToBottom = () => {
   })
 }
 
+const newChat = () => {
+  if (messages.value.length > 0) {
+    if (confirm('Start a new chat? Current conversation will be saved in history.')) {
+      messages.value = []
+      currentResponse.value = ''
+      streaming.value = false
+      searching.value = false
+      currentSessionId.value = null
+    }
+  } else {
+    currentSessionId.value = null
+  }
+}
+
 const clearChat = () => {
   messages.value = []
   currentResponse.value = ''
   streaming.value = false
+  searching.value = false
+  currentSessionId.value = null
 }
+
+const loadMessages = (msgs) => {
+  messages.value = []
+  streaming.value = false
+  searching.value = false
+  currentResponse.value = ''
+  currentSessionId.value = null
+  
+  nextTick(() => {
+    messages.value = msgs.map(m => ({
+      role: m.role,
+      content: m.content
+    }))
+    scrollToBottom()
+  })
+}
+
+defineExpose({
+  loadMessages
+})
 
 const connectWebSocket = () => {
   if (ws?.readyState === WebSocket.OPEN) return
   
-  ws = new WebSocket('ws://localhost:8000/ws/chat')
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const host = window.location.host
+  const wsUrl = `${protocol}//${host}/ws/chat`
+  
+  console.log('Connecting to:', wsUrl)
+  ws = new WebSocket(wsUrl)
+  
+  ws.onopen = () => {
+    console.log('WebSocket connected')
+  }
   
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data)
     
-    if (data.status === 'streaming' && data.token) {
+    if (data.session_id) {
+      currentSessionId.value = data.session_id
+      console.log('Session ID:', data.session_id)
+    }
+    
+    if (data.status === 'searching') {
+      searching.value = true
+      scrollToBottom()
+    } else if (data.status === 'streaming' && data.token) {
+      searching.value = false
       currentResponse.value += data.token
       scrollToBottom()
     } else if (data.status === 'done') {
@@ -134,6 +247,7 @@ const connectWebSocket = () => {
       }
       currentResponse.value = ''
       streaming.value = false
+      searching.value = false
       scrollToBottom()
     } else if (data.status === 'error') {
       messages.value.push({
@@ -141,13 +255,24 @@ const connectWebSocket = () => {
         content: `⚠️ ${data.message}`
       })
       streaming.value = false
+      searching.value = false
       currentResponse.value = ''
     }
+  }
+  
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error)
+    messages.value.push({
+      role: 'assistant',
+      content: '⚠️ Connection error'
+    })
+    streaming.value = false
+    searching.value = false
   }
 }
 
 const sendMessage = () => {
-  if (!userInput.value.trim() || streaming.value) return
+  if (!userInput.value.trim() || streaming.value || searching.value) return
   
   const messageText = userInput.value
   
@@ -163,8 +288,13 @@ const sendMessage = () => {
       streaming.value = true
       currentResponse.value = ''
       
+      console.log('Sending web_search_enabled:', webSearchEnabled.value)  // DEBUG
+      
       ws.send(JSON.stringify({
-        message: messageText
+        message: messageText,
+        user_id: props.userId,
+        session_id: currentSessionId.value,
+        web_search_enabled: webSearchEnabled.value  // IMPORTANT
       }))
       
       scrollToBottom()
@@ -195,7 +325,7 @@ const sendMessage = () => {
   @apply leading-relaxed;
 }
 .prose a {
-  @apply text-blue-400 hover:text-blue-300;
+  @apply text-blue-400 hover:text-blue-300 underline;
 }
 .prose strong {
   @apply text-white font-semibold;
