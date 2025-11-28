@@ -66,6 +66,19 @@
             </div>
           </div>
         </div>
+
+        <!-- Qwen Indicator -->
+        <div v-if="qwenProcessing" class="flex justify-start">
+          <div class="bg-purple-900/30 border border-purple-700 rounded-2xl px-4 py-3">
+            <div class="flex items-center gap-2 text-purple-400">
+              <svg class="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+              </svg>
+              <span>🤖 Querying Qwen AI...</span>
+            </div>
+          </div>
+        </div>
         
         <!-- Streaming -->
         <div v-if="streaming" class="flex justify-start">
@@ -78,26 +91,48 @@
     
     <!-- Input -->
     <div class="border-t border-gray-800 p-4 bg-gray-950">
-      <!-- Web Search Toggle -->
+      <!-- Web Search & Qwen Toggle -->
       <div class="flex items-center justify-between mb-3 max-w-4xl">
-        <button
-          @click="webSearchEnabled = !webSearchEnabled"
-          :class="[
-            'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all',
-            webSearchEnabled 
-              ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' 
-              : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
-          ]"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-          </svg>
-          <span v-if="webSearchEnabled">🌐 Web Search: ON</span>
-          <span v-else>Web Search: OFF</span>
-        </button>
+        <div class="flex items-center gap-2">
+          <!-- Web Search Toggle -->
+          <button
+            @click="webSearchEnabled = !webSearchEnabled"
+            :class="[
+              'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+              webSearchEnabled 
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' 
+                : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+            ]"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            <span v-if="webSearchEnabled">🌐 Web Search: ON</span>
+            <span v-else>Web Search: OFF</span>
+          </button>
+
+          <!-- Qwen Toggle -->
+          <button
+            @click="qwenEnabled = !qwenEnabled"
+            :class="[
+              'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+              qwenEnabled 
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20' 
+                : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+            ]"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+            </svg>
+            <span v-if="qwenEnabled">🤖 Qwen: ON</span>
+            <span v-else>Qwen: OFF</span>
+          </button>
+        </div>
         
-        <span v-if="webSearchEnabled" class="text-xs text-blue-400">
-          Using MCP Web Research Tool
+        <span v-if="webSearchEnabled || qwenEnabled" class="text-xs">
+          <span v-if="webSearchEnabled" class="text-blue-400">Web Search Active</span>
+          <span v-if="webSearchEnabled && qwenEnabled" class="text-gray-500"> • </span>
+          <span v-if="qwenEnabled" class="text-purple-400">Qwen AI Active</span>
         </span>
       </div>
       
@@ -105,7 +140,7 @@
         <textarea
           v-model="userInput"
           @keydown.enter.exact.prevent="sendMessage"
-          :placeholder="webSearchEnabled ? 'Search the web about code, APIs, frameworks...' : 'Ask about code, algorithms, debugging...'"
+          :placeholder="getPlaceholder()"
           class="flex-1 bg-gray-800 text-white border border-gray-700 rounded-xl px-4 py-3 resize-none 
                  focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                  placeholder-gray-500"
@@ -113,13 +148,13 @@
         ></textarea>
         <button
           @click="sendMessage"
-          :disabled="!userInput.trim() || streaming || searching"
+          :disabled="!userInput.trim() || streaming || searching || qwenProcessing"
           class="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl 
                  hover:from-blue-700 hover:to-indigo-700
                  disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed 
                  font-semibold shadow-lg shadow-blue-500/20 transition-all"
         >
-          <svg v-if="!streaming && !searching" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg v-if="!streaming && !searching && !qwenProcessing" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
           </svg>
           <svg v-else class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -131,6 +166,7 @@
       <p class="text-xs text-gray-500 mt-2 text-center">
         Press Enter to send
         <span v-if="webSearchEnabled" class="text-blue-400"> • Web search active 🔍</span>
+        <span v-if="qwenEnabled" class="text-purple-400"> • Qwen AI active 🤖</span>
       </p>
     </div>
   </div>
@@ -139,15 +175,35 @@
 <script setup>
 import { ref, nextTick } from 'vue'
 import { marked } from 'marked'
+import hljs from 'highlight.js'
+import 'highlight.js/styles/atom-one-dark.css'
+
+// Configure marked with syntax highlighting
+marked.setOptions({
+  highlight: function(code, lang) {
+    if (lang && hljs.getLanguage(lang)) {
+      try {
+        return hljs.highlight(code, { language: lang }).value
+      } catch (err) {
+        console.error('Highlight error:', err)
+      }
+    }
+    return hljs.highlightAuto(code).value
+  },
+  breaks: true,
+  gfm: true
+})
 
 const messages = ref([])
 const userInput = ref('')
 const streaming = ref(false)
 const searching = ref(false)
+const qwenProcessing = ref(false)
 const currentResponse = ref('')
 const chatContainer = ref(null)
 const currentSessionId = ref(null)
-const webSearchEnabled = ref(false) // Toggle for web search
+const webSearchEnabled = ref(false)
+const qwenEnabled = ref(false)
 
 const props = defineProps({
   userId: String
@@ -156,7 +212,7 @@ const props = defineProps({
 let ws = null
 
 const renderMarkdown = (text) => {
-  return marked(text, { breaks: true })
+  return marked.parse(text)
 }
 
 const scrollToBottom = () => {
@@ -167,6 +223,12 @@ const scrollToBottom = () => {
   })
 }
 
+const getPlaceholder = () => {
+  if (qwenEnabled.value) return 'Ask Qwen AI about code, algorithms...'
+  if (webSearchEnabled.value) return 'Search the web about code, APIs, frameworks...'
+  return 'Ask about code, algorithms, debugging...'
+}
+
 const newChat = () => {
   if (messages.value.length > 0) {
     if (confirm('Start a new chat? Current conversation will be saved in history.')) {
@@ -174,6 +236,7 @@ const newChat = () => {
       currentResponse.value = ''
       streaming.value = false
       searching.value = false
+      qwenProcessing.value = false
       currentSessionId.value = null
     }
   } else {
@@ -186,6 +249,7 @@ const clearChat = () => {
   currentResponse.value = ''
   streaming.value = false
   searching.value = false
+  qwenProcessing.value = false
   currentSessionId.value = null
 }
 
@@ -193,6 +257,7 @@ const loadMessages = (msgs) => {
   messages.value = []
   streaming.value = false
   searching.value = false
+  qwenProcessing.value = false
   currentResponse.value = ''
   currentSessionId.value = null
   
@@ -234,8 +299,12 @@ const connectWebSocket = () => {
     if (data.status === 'searching') {
       searching.value = true
       scrollToBottom()
+    } else if (data.status === 'qwen_processing') {
+      qwenProcessing.value = true
+      scrollToBottom()
     } else if (data.status === 'streaming' && data.token) {
       searching.value = false
+      qwenProcessing.value = false
       currentResponse.value += data.token
       scrollToBottom()
     } else if (data.status === 'done') {
@@ -248,6 +317,7 @@ const connectWebSocket = () => {
       currentResponse.value = ''
       streaming.value = false
       searching.value = false
+      qwenProcessing.value = false
       scrollToBottom()
     } else if (data.status === 'error') {
       messages.value.push({
@@ -256,6 +326,7 @@ const connectWebSocket = () => {
       })
       streaming.value = false
       searching.value = false
+      qwenProcessing.value = false
       currentResponse.value = ''
     }
   }
@@ -268,11 +339,12 @@ const connectWebSocket = () => {
     })
     streaming.value = false
     searching.value = false
+    qwenProcessing.value = false
   }
 }
 
 const sendMessage = () => {
-  if (!userInput.value.trim() || streaming.value || searching.value) return
+  if (!userInput.value.trim() || streaming.value || searching.value || qwenProcessing.value) return
   
   const messageText = userInput.value
   
@@ -288,13 +360,12 @@ const sendMessage = () => {
       streaming.value = true
       currentResponse.value = ''
       
-      console.log('Sending web_search_enabled:', webSearchEnabled.value)  // DEBUG
-      
       ws.send(JSON.stringify({
         message: messageText,
         user_id: props.userId,
         session_id: currentSessionId.value,
-        web_search_enabled: webSearchEnabled.value  // IMPORTANT
+        web_search_enabled: webSearchEnabled.value,
+        qwen_enabled: qwenEnabled.value
       }))
       
       scrollToBottom()
@@ -306,31 +377,47 @@ const sendMessage = () => {
 </script>
 
 <style>
+@import 'highlight.js/styles/atom-one-dark.css';
+
 .prose {
   @apply text-gray-200;
 }
+
 .prose code {
   @apply bg-gray-900 px-2 py-1 rounded text-sm font-mono text-blue-400 border border-gray-700;
 }
+
 .prose pre {
-  @apply bg-black text-gray-100 p-4 rounded-lg overflow-x-auto border border-gray-800;
+  @apply bg-gray-950 text-gray-100 p-4 rounded-lg overflow-x-auto border border-gray-700 my-4;
 }
+
 .prose pre code {
-  @apply bg-transparent border-0 text-gray-100;
+  @apply bg-transparent border-0 text-sm;
+  display: block;
+  padding: 0;
 }
+
 .prose h1, .prose h2, .prose h3 {
-  @apply text-white font-bold;
+  @apply text-white font-bold mt-4 mb-2;
 }
+
 .prose p {
-  @apply leading-relaxed;
+  @apply leading-relaxed mb-4;
 }
+
 .prose a {
   @apply text-blue-400 hover:text-blue-300 underline;
 }
+
 .prose strong {
-  @apply text-white font-semibold;
+  @apply text-white font-bold;
 }
+
 .prose ul, .prose ol {
-  @apply text-gray-300;
+  @apply text-gray-300 ml-4 mb-4;
+}
+
+.prose li {
+  @apply mb-2;
 }
 </style>

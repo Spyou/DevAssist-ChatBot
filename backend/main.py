@@ -16,6 +16,7 @@ from rag_engine import RAGEngine
 from memory_manager import MemoryManager
 from auth import verify_token, AuthManager
 from web_research import WebResearchService
+from qwen_service import QwenService
 
 load_dotenv()
 
@@ -25,7 +26,7 @@ rag_engine = RAGEngine()
 memory = MemoryManager()
 auth_manager = AuthManager()
 web_research = WebResearchService()
-# Initialize MCP client
+qwen_service = QwenService()
 mcp_client = MCPClient()
 
 app.add_middleware(
@@ -77,10 +78,8 @@ RESPONSE RULES:
 
 Stay laser-focused on software engineering ONLY."""
 
-# Session tracking
 active_sessions = {}
 
-# Auth endpoints
 class AuthRequest(BaseModel):
     email: str
     password: str
@@ -100,7 +99,6 @@ async def health():
 
 @app.get("/api/history/{user_id}")
 async def get_chat_history(user_id: str):
-    """Get conversation history grouped by sessions"""
     try:
         response = memory.supabase.table('chat_history')\
             .select('id, session_id, role, content, created_at')\
@@ -147,7 +145,6 @@ async def get_chat_history(user_id: str):
 
 @app.post("/api/clear")
 async def clear_documents():
-    """Clear uploaded documents from RAG"""
     try:
         success = rag_engine.clear_documents()
         if success:
@@ -158,7 +155,6 @@ async def clear_documents():
 
 @app.post("/api/clear-memory")
 async def clear_memory_endpoint(user_id: str):
-    """Clear conversation history for a user"""
     try:
         success = memory.clear_history(user_id)
         if success:
@@ -190,7 +186,6 @@ async def upload_file(file: UploadFile = File(...)):
     
 @app.get("/api/mcp/tools")
 async def get_mcp_tools():
-    """Get list of available MCP tools"""
     return {
         "status": "success",
         "tools": mcp_client.list_tools()
@@ -198,7 +193,6 @@ async def get_mcp_tools():
 
 @app.post("/api/mcp/test")
 async def test_mcp_tool(query: str):
-    """Test MCP tool directly"""
     result = await mcp_client.call_tool(
         "queryProgrammingWeb",
         {"query": query, "max_results": 3}
@@ -219,9 +213,11 @@ async def chat_websocket(websocket: WebSocket):
             user_id = message_data.get("user_id", "anonymous")
             session_id = message_data.get("session_id")
             web_search_enabled = message_data.get("web_search_enabled", False)
+            qwen_enabled = message_data.get("qwen_enabled", False)
 
             print(f"📨 Message: {user_message}")
             print(f"🔍 Web Search Enabled: {web_search_enabled}")
+            print(f"🤖 Qwen Enabled: {qwen_enabled}")
 
             if not session_id:
                 session_id = str(uuid4())
@@ -229,10 +225,55 @@ async def chat_websocket(websocket: WebSocket):
 
             memory.add_message(user_id, "user", user_message, session_id)
 
+            # ===== QWEN MODE: Stream direct response (bypass LLM) =====
+            if qwen_enabled:
+                await websocket.send_json({
+                    "status": "qwen_processing",
+                    "message": "🤖 Querying Qwen AI..."
+                })
+
+                qwen_result = await qwen_service.query_qwen(user_message)
+                
+                if qwen_result and qwen_result.get('content'):
+                    # Stream Qwen response DIRECTLY to frontend
+                    qwen_response = qwen_result['content']
+                    
+                    print(f"✅ Streaming Qwen response ({len(qwen_response)} chars) directly to client...")
+                    
+                    for char in qwen_response:
+                        await websocket.send_json({
+                            "token": char,
+                            "status": "streaming",
+                            "session_id": session_id
+                        })
+                    
+                    # Save to memory
+                    memory.add_message(user_id, "assistant", qwen_response, session_id)
+                    
+                    # Send done signal
+                    await websocket.send_json({
+                        "status": "done",
+                        "session_id": session_id,
+                        "mcp_used": False,
+                        "sources_count": 0,
+                        "qwen_used": True
+                    })
+                    
+                    print("✅ Qwen response streaming complete")
+                    continue  # Skip LLM processing completely
+                else:
+                    # Qwen failed
+                    await websocket.send_json({
+                        "status": "error",
+                        "message": "⚠️ Qwen failed to respond"
+                    })
+                    continue
+
+            # ===== NORMAL MODE (Web Search + Your LLM) =====
             web_results = []
             context_text = ""
 
-            # --- SMART WEB + MODEL RAG (for "ChatGPT-style" hybrid) ---
+            # WEB SEARCH
             if web_search_enabled and web_research.is_programming_query(user_message):
                 await websocket.send_json({
                     "status": "searching",
@@ -255,16 +296,14 @@ async def chat_websocket(websocket: WebSocket):
                                          f"URL: {result['url']}\n"
                                          f"Content: {result['snippet']}\n\n")
                     context_text += "=== END WEB RESEARCH ===\n\n"
-                    # Smart hybrid instruction: prefer web, fallback if empty
                     context_text += (
                         "INSTRUCTIONS:\n"
-                        "If any of the web research results above directly answer the user's question (e.g., latest versions, feature lists, dates, major facts), "
+                        "If any of the web research results above directly answer the user's question, "
                         "use ONLY those and cite [Source N] for every fact. "
-                        "If not found in the web results, you MAY use your own up-to-date programming knowledge as fallback. "
-                        "Always prefer claiming facts from the web block if available.\n\n"
+                        "If not found in the web results, you MAY use your own up-to-date programming knowledge as fallback.\n\n"
                     )
 
-            # Add RAG/doc context if available
+            # RAG context
             context_chunks = rag_engine.search(user_message)
             if context_chunks:
                 context_text += "\n\n--- UPLOADED DOCUMENTS ---\n"
@@ -272,17 +311,14 @@ async def chat_websocket(websocket: WebSocket):
                     context_text += f"\n[Document {i}]\n{chunk}\n"
                 context_text += "\n--- END DOCUMENTS ---\n"
 
-            # The SYSTEM_PROMPT always comes first (rules, tone)
             full_prompt = SYSTEM_PROMPT + context_text
 
-            # Add chat session history (for LLM context)
             recent_history = memory.get_session_history(user_id, session_id, limit=10)
             messages = [{"role": "system", "content": full_prompt}]
             if len(recent_history) > 1:
                 messages.extend(recent_history[:-1])
             messages.append({"role": "user", "content": user_message})
 
-            # DEBUG: Print what LLM will see
             print("="*30, "LLM CONTEXT", "="*30)
             print(full_prompt[:800])
             print("="*70)
@@ -306,7 +342,6 @@ async def chat_websocket(websocket: WebSocket):
                             "session_id": session_id
                         })
 
-                # Stream sources block if web search used
                 if web_results:
                     sources_text = "\n\n**Sources (Web Research):**\n"
                     for i, result in enumerate(web_results, 1):
@@ -325,7 +360,8 @@ async def chat_websocket(websocket: WebSocket):
                     "status": "done",
                     "session_id": session_id,
                     "mcp_used": len(web_results) > 0,
-                    "sources_count": len(web_results)
+                    "sources_count": len(web_results),
+                    "qwen_used": False
                 })
 
             except Exception as e:
@@ -347,8 +383,7 @@ async def chat_websocket(websocket: WebSocket):
             del active_sessions[user_id]
 
 
-
-# Static files - MUST BE LAST
+# Static files
 static_dir = Path(__file__).parent.parent / "frontend" / "dist"
 
 if static_dir.exists():

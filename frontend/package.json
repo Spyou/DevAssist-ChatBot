@@ -6,8 +6,9 @@
     "build": "vite build"
   },
   "dependencies": {
-    "vue": "^3.3.4",
-    "marked": "^9.1.6"
+    "highlight.js": "^11.11.1",
+    "marked": "^9.1.6",
+    "vue": "^3.3.4"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^4.4.0",
